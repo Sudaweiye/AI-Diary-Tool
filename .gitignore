@@ -4,3 +4,7 @@ outputs/
 *.log
 *.out
 *.toc
+build/
+dist/
+*.spec
+tmp/

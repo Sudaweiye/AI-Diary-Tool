@@ -3,6 +3,7 @@ import os
 import queue
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -19,7 +20,10 @@ except ImportError:  # pragma: no cover - optional dependency
     WhisperModel = None
 
 
-APP_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    APP_DIR = Path(sys.executable).resolve().parent
+else:
+    APP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = APP_DIR / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -95,24 +99,51 @@ def build_prompt(data: "DiaryRequest") -> str:
    - 尽量保留原意和原本的思维路径
    - 去掉明显口语赘词、重复、语音识别噪音
    - 可以适度润色，但不要改写成完全不像原作者
+   - 不要虚构原文中没有出现的具体事件、数字、人物或背景细节
 13. 必须去掉所有类似 [cite: 1]、[cite: 11] 的标记。
 14. 文末必须保留一个较小字号的总结模块，标题固定写成：{summary_label}
 15. {comment_mode_text}
 16. 如果正文中加入评论段落，标签固定写成：{comment_label}
 17. 最低长度要求：不少于 {data.min_pages} 页。
 18. 重点优先遵守用户在原文中已经稳定表达出的格式偏好。
+19. 不要把正文写成一整篇无分层的大散文，必须做清晰的大纲化组织。
+20. 每一个重点都必须有独立的小节标题和独立段落。
+21. comments 只在你认为确实有必要的地方插入，不要机械地每节都加。
+22. comments 应该紧跟相关段落之后，起到点明、提炼或提醒作用，而不是喧宾夺主。
+23. 整体应比之前那种过度扩写、长段连续推进的写法更清晰、更利于回看。
 
 排版模板必须接近下面这些固定结构：
 - 使用 geometry、setspace、fontspec、fancyhdr
 - 标题居中，日期单独一行
 - 正文后有一条横线
 - 总结部分用 \\small 并适度缩小行距
+- 正文主体请优先使用 `\\section*{{一、...}}`、`\\section*{{二、...}}` 这样的层级结构
+- 如有必要，可在某一节内部再用 `\\subsection*{{...}}`，但不要过度切碎
 
 写作目标：
 - 让成品像“自己会保存的正式日记”
 - 逻辑要清晰，段落过渡自然
 - 如果原文本身比较碎，请主动重组结构
 - 如果原文内容比较少，但用户要求页数较长，可以在不背离原意的前提下深度扩写、补充分析与反思
+- 但即使扩写，也必须优先保证结构感，而不是单纯拉长篇幅
+- 扩写时只能沿着原文已经出现的主题、判断和情绪展开，不能自行编造新事实
+
+推荐结构：
+1. 开头只用 1 到 2 段，简明交代当天背景与总感受
+2. 正文拆成 3 到 6 个重点小节
+3. 每个小节围绕一个明确主题展开
+4. 每个小节通常控制在 2 到 4 段
+5. 如果某一节特别重要，可以更长，但不要让全文失去层次
+6. 文末收束，再进入 {summary_label}
+
+额外风格要求：
+- 不要生成过长的 LaTeX 冗余结构
+- 不要加入太多无关宏包，前导区尽量简洁
+- 不要把 comments 写得比正文更抢戏
+- comments 的数量应控制，通常 1 到 3 处即可，除非用户明确要求多一些
+- 小节标题要概括性强，能一眼看出该段重点
+- 各小节之间应尽量避免内容重复
+- 如果原文本身已经有几个明确主题，请优先沿着那些主题组织大纲
 
 用户参数：
 - 日期：{data.display_date}

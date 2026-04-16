@@ -28,6 +28,9 @@
   - 右上为日期
   - 页脚中间为页码
 - 标题需要概括当天核心主题
+- 正文采用更清晰的大纲式结构
+- 每个重点有独立标题与独立段落
+- 在必要处插入少量 `Codex comment:`
 - 文风保持理性、克制、工科生式反思
 - 自动去除 `cite` 之类的噪音标记
 - 文末保留较小字号的 `Codex近日总结：`
@@ -45,6 +48,31 @@
 ```powershell
 python app.py
 ```
+
+## 打包为 Windows 可执行文件
+
+项目已经包含打包脚本：
+
+`build_windows_release.bat`
+
+双击运行后，会调用 `PyInstaller` 生成一个更适合分发的 Windows 成品目录：
+
+```text
+dist/
+  CodexDiaryTool/
+    CodexDiaryTool.exe
+    outputs/
+    ...
+```
+
+当前采用的是 `--onedir` 方案，而不是 `--onefile`。
+
+这样做的原因是：
+
+- GUI 启动更稳定
+- 对 `faster-whisper` 这类依赖更友好
+- 出问题时更容易排查
+- 更适合后续继续加入资源文件和图标
 
 ## 使用步骤
 
@@ -85,6 +113,7 @@ python app.py
 - 本机可用的 `codex`
 - 本机可用的 `xelatex`
 - Windows 环境下建议已安装 `ffmpeg`
+- 如果要打包，需要本机安装 `PyInstaller`
 
 Python 依赖见：
 
