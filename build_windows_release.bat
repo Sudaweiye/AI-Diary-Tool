@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal
 cd /d "%~dp0"
 
@@ -12,7 +12,7 @@ pyinstaller ^
   --clean ^
   --windowed ^
   --onedir ^
-  --name CodexDiaryTool ^
+  --name AI-Diary-Tool ^
   --collect-all faster_whisper ^
   --hidden-import tkinter ^
   --hidden-import tkinter.ttk ^
@@ -26,9 +26,10 @@ if errorlevel 1 (
 )
 
 echo [3/3] Ensuring runtime output directory exists...
-if not exist "dist\\CodexDiaryTool\\outputs" mkdir "dist\\CodexDiaryTool\\outputs"
+if not exist "dist\\AI-Diary-Tool\\outputs" mkdir "dist\\AI-Diary-Tool\\outputs"
 
 echo.
 echo Build completed:
-echo   %cd%\\dist\\CodexDiaryTool\\CodexDiaryTool.exe
+echo   %cd%\\dist\\AI-Diary-Tool\\AI-Diary-Tool.exe
 pause
+

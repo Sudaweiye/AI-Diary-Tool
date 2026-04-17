@@ -288,7 +288,7 @@ class DiaryGenerator:
 class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Codex Diary Tool")
+        self.root.title("AI-Diary-Tool")
         self.root.geometry("1380x900")
 
         self.generator = DiaryGenerator()
