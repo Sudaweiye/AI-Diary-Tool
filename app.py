@@ -24,8 +24,13 @@ if getattr(sys, "frozen", False):
     APP_DIR = Path(sys.executable).resolve().parent
 else:
     APP_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = APP_DIR / "outputs"
-OUTPUT_DIR.mkdir(exist_ok=True)
+DEFAULT_OUTPUT_DIR = Path(r"H:\OneDrive\Desktop\日記")
+try:
+    OUTPUT_DIR = DEFAULT_OUTPUT_DIR
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    OUTPUT_DIR = APP_DIR / "outputs"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
@@ -78,13 +83,49 @@ def format_date_with_weekday(raw_date: str) -> tuple[str, str]:
         parsed = datetime.strptime(raw_date, "%Y-%m-%d")
     except ValueError:
         return raw_date, ""
-    display_date = f"{parsed.year}年{parsed.month}月{parsed.day}日"
+    display_date = f"{parsed.year} 年 {parsed.month} 月 {parsed.day} 日"
     weekday = weekday_names[parsed.weekday()]
     return display_date, weekday
 
 
+def normalize_generated_latex(latex: str, request: "DiaryRequest") -> str:
+    title_prefix = "日记： " if request.script == "simplified" else "日記： "
+    header_date = request.display_date
+    date_line = request.display_date
+    if request.weekday_text:
+        date_line = f"{request.display_date} \\quad {request.weekday_text}"
+
+    def fix_title(match: re.Match[str]) -> str:
+        title = match.group(1).strip()
+        if title.startswith("日记："):
+            title = "日记： " + title[len("日记：") :].lstrip()
+        elif title.startswith("日記："):
+            title = "日記： " + title[len("日記：") :].lstrip()
+        else:
+            title = title_prefix + title
+        return "{\\LARGE \\textbf{" + title + "}} \\\\"
+
+    latex = re.sub(
+        r"\{\\LARGE\s+\\textbf\{(.*?)\}\}\s*\\\\",
+        fix_title,
+        latex,
+        count=1,
+        flags=re.DOTALL,
+    )
+    latex = re.sub(r"\\rhead\{.*?\}", lambda _match: f"\\rhead{{{header_date}}}", latex, count=1)
+    latex = re.sub(
+        r"\{\\large\s+.*?\}",
+        lambda _match: f"{{\\large {date_line}}}",
+        latex,
+        count=1,
+        flags=re.DOTALL,
+    )
+    return latex
+
+
 def build_prompt(data: "DiaryRequest") -> str:
     script_name = "简体中文" if data.script == "simplified" else "繁体中文"
+    title_prefix = "日记： " if data.script == "simplified" else "日記： "
     comment_mode_text = {
         "none": "不要在正文中加入额外评论模块。",
         "some": "可以在正文中少量加入明显标注的 `Codex comment:` 段落，点到为止。",
@@ -115,7 +156,7 @@ def build_prompt(data: "DiaryRequest") -> str:
    - 左上：个人日记
    - 右上：{data.display_date}
    - 页脚中间：页码
-10. 标题不能空泛，必须概括这一天最核心的矛盾、事件或反思。
+10. 主标题必须以 `{title_prefix}` 开头，冒号后必须保留一个空格；标题不能空泛，必须概括这一天最核心的矛盾、事件或反思。
 11. 语言统一使用：{script_name}。
 12. 文风要求：
    - 理性、克制、工科生式反思
@@ -136,8 +177,11 @@ def build_prompt(data: "DiaryRequest") -> str:
 22. comments 应该紧跟相关段落之后，起到点明、提炼或提醒作用，而不是喧宾夺主。
 23. 整体应比之前那种过度扩写、长段连续推进的写法更清晰、更利于回看。
 24. 日期行必须明确写出星期几，不能缺失。
-25. 如果输入日期可解析，正文标题下的日期行固定写成：`{data.display_date} {data.weekday_text}`。
+25. 如果输入日期可解析，正文标题下的日期行固定写成：`{data.display_date} \\quad {data.weekday_text}`。
 26. 如果原始内容中出现类似 `���`、`�`、乱码占位符或明显损坏字符，不要原样保留，应结合上下文谨慎清理；无法安全还原时，宁可删除坏字符，也不要把乱码写进最终稿。
+27. 页眉右上角日期与标题下日期行，都必须使用带空格的中文日期格式，例如：`2026 年 4 月 15 日`，不要写成 `2026年4月15日`。
+28. 中文与英文、数字、缩写混排时，该有空格的地方要有空格，尽量参考用户给出的样例排版；例如 `CS50 AI`、`API`、`Bug`、`FedDrop` 等前后与中文衔接时应自然留白。
+29. 总体版式应尽量接近用户示例：标题为 `日记： 主题` 或 `日記： 主題`，日期行单独居中显示，星期几不可缺失。
 
 排版模板必须接近下面这些固定结构：
 - 使用 geometry、setspace、fontspec、fancyhdr
@@ -147,6 +191,7 @@ def build_prompt(data: "DiaryRequest") -> str:
 - 总结部分用 \\small 并适度缩小行距
 - 正文主体请优先使用 `\\section*{{一、...}}`、`\\section*{{二、...}}` 这样的层级结构
 - 如有必要，可在某一节内部再用 `\\subsection*{{...}}`，但不要过度切碎
+- 标题下日期行请使用 `{data.display_date} \\quad {data.weekday_text}` 这一视觉风格
 
 写作目标：
 - 让成品像“自己会保存的正式日记”
@@ -283,6 +328,7 @@ class DiaryGenerator:
             if not out_file.exists():
                 raise RuntimeError("Codex 已执行，但没有找到输出文件。")
             latex = cleanup_codex_output(out_file.read_text(encoding="utf-8"))
+            latex = normalize_generated_latex(latex, request)
             if "\\documentclass" not in latex or "\\end{document}" not in latex:
                 raise RuntimeError("Codex 返回的内容不是完整的 LaTeX 文档。")
             return latex
