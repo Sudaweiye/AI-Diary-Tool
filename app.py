@@ -7,7 +7,7 @@ import sys
 import tempfile
 import threading
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -50,6 +50,7 @@ def cleanup_codex_output(text: str) -> str:
     cleaned = re.sub(r"^```(?:latex)?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     cleaned = re.sub(r"\[cite:[^\]]+\]", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.replace("\ufffd", "")
     return cleaned.strip()
 
 
@@ -57,6 +58,29 @@ def make_filename_slug(text: str) -> str:
     safe = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "", text)
     safe = safe.replace(" ", "_").strip("._")
     return safe or "diary"
+
+
+def sanitize_source_text(text: str) -> str:
+    cleaned = text.replace("\ufeff", "")
+    cleaned = cleaned.replace("\ufffd", "�")
+    cleaned = re.sub(r"�{2,}", "[乱码]", cleaned)
+    cleaned = re.sub(r"(?<=[\u4e00-\u9fff])�(?=[\u4e00-\u9fff])", "[乱码]", cleaned)
+    cleaned = cleaned.replace("�", "")
+    cleaned = re.sub(r"\r\n?", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def format_date_with_weekday(raw_date: str) -> tuple[str, str]:
+    raw_date = raw_date.strip()
+    weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    try:
+        parsed = datetime.strptime(raw_date, "%Y-%m-%d")
+    except ValueError:
+        return raw_date, ""
+    display_date = f"{parsed.year}年{parsed.month}月{parsed.day}日"
+    weekday = weekday_names[parsed.weekday()]
+    return display_date, weekday
 
 
 def build_prompt(data: "DiaryRequest") -> str:
@@ -111,10 +135,14 @@ def build_prompt(data: "DiaryRequest") -> str:
 21. comments 只在你认为确实有必要的地方插入，不要机械地每节都加。
 22. comments 应该紧跟相关段落之后，起到点明、提炼或提醒作用，而不是喧宾夺主。
 23. 整体应比之前那种过度扩写、长段连续推进的写法更清晰、更利于回看。
+24. 日期行必须明确写出星期几，不能缺失。
+25. 如果输入日期可解析，正文标题下的日期行固定写成：`{data.display_date} {data.weekday_text}`。
+26. 如果原始内容中出现类似 `���`、`�`、乱码占位符或明显损坏字符，不要原样保留，应结合上下文谨慎清理；无法安全还原时，宁可删除坏字符，也不要把乱码写进最终稿。
 
 排版模板必须接近下面这些固定结构：
 - 使用 geometry、setspace、fontspec、fancyhdr
 - 标题居中，日期单独一行
+- 日期单独一行时必须带星期几
 - 正文后有一条横线
 - 总结部分用 \\small 并适度缩小行距
 - 正文主体请优先使用 `\\section*{{一、...}}`、`\\section*{{二、...}}` 这样的层级结构
@@ -147,6 +175,7 @@ def build_prompt(data: "DiaryRequest") -> str:
 
 用户参数：
 - 日期：{data.display_date}
+- 星期：{data.weekday_text or "未提供"}
 - 页数要求：不少于 {data.min_pages} 页
 - 正文字内评论模式：{data.comment_mode}
 - 额外补充要求：{data.extra_requirements or "无"}
@@ -160,6 +189,7 @@ def build_prompt(data: "DiaryRequest") -> str:
 @dataclass
 class DiaryRequest:
     display_date: str
+    weekday_text: str
     script: str
     min_pages: int
     comment_mode: str
@@ -460,20 +490,22 @@ class App:
         self.worker.start()
 
     def _build_request(self, transcript: str) -> DiaryRequest:
+        display_date, weekday_text = format_date_with_weekday(self.date_var.get())
         return DiaryRequest(
-            display_date=self.date_var.get().strip(),
+            display_date=display_date,
+            weekday_text=weekday_text,
             script=self.script_var.get().strip(),
             min_pages=int(self.pages_var.get()),
             comment_mode=self.comment_var.get().strip(),
             extra_requirements=self.extra_text.get("1.0", tk.END).strip(),
-            transcript=transcript,
+            transcript=sanitize_source_text(transcript),
         )
 
     def _transcribe_if_needed(self) -> str:
         transcript = self.transcript_text.get("1.0", tk.END).strip()
         audio_path_str = self.audio_var.get().strip()
         if transcript:
-            return transcript
+            return sanitize_source_text(transcript)
         if not audio_path_str:
             return ""
         audio_path = Path(audio_path_str)
@@ -481,6 +513,7 @@ class App:
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
         self.log(f"正在转写音频：{audio_path}")
         transcript = self.generator.transcribe_audio(audio_path)
+        transcript = sanitize_source_text(transcript)
         self.log(f"转写后端：{self.generator.last_transcription_backend}")
         self.root.after(0, self._replace_transcript_text, transcript)
         out_path = OUTPUT_DIR / f"transcript_{make_filename_slug(self.date_var.get())}.txt"
